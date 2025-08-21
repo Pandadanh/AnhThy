@@ -14,6 +14,87 @@
             overflow: hidden;
             background: #000;
         }
+        
+        /* Orientation warning for mobile devices */
+        #orientationWarning {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 999;
+            color: #00bfff;
+            text-align: center;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        #orientationWarning .rotate-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            animation: rotate-pulse 2s infinite;
+        }
+        
+        #orientationWarning .warning-text {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 0 10px #00bfff;
+        }
+        
+        #orientationWarning .sub-text {
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+        
+        @keyframes rotate-pulse {
+            0% { transform: rotate(0deg) scale(1); }
+            25% { transform: rotate(90deg) scale(1.1); }
+            50% { transform: rotate(90deg) scale(1); }
+            75% { transform: rotate(90deg) scale(1.1); }
+            100% { transform: rotate(90deg) scale(1); }
+        }
+        
+        /* Hide content on portrait mobile */
+        @media screen and (max-width: 768px) and (orientation: portrait) {
+            #orientationWarning {
+                display: flex !important;
+            }
+            #matrixCanvas,
+            #heartContainer,
+            #fireworks3dContainer,
+            .intro-text,
+            .countdown,
+            .dynamic-text,
+            .card-message,
+            .start-button {
+                display: none !important;
+            }
+        }
+        
+        /* Optimize for landscape mobile */
+        @media screen and (max-width: 768px) and (orientation: landscape) {
+            .intro-text, .countdown, .dynamic-text {
+                font-size: 2rem;
+            }
+            .countdown {
+                font-size: 4rem;
+            }
+            .dynamic-text {
+                font-size: 3rem;
+            }
+            .card-message {
+                font-size: 1.8rem;
+                top: 80%;
+            }
+            .start-button {
+                font-size: 1.5rem;
+                padding: 15px 30px;
+            }
+        }
         canvas {
             display: block;
         }
@@ -31,7 +112,7 @@
             height: 100%;
             display: none; /* Hide initially */
         }
-        .intro-text, .countdown, .dynamic-text, .card-message {
+        .intro-text, .countdown, .dynamic-text, .card-message, .start-button {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -44,6 +125,29 @@
             opacity: 0;
             transition: opacity 1s ease-in-out;
             text-align: center;
+        }
+        
+        .start-button {
+            background: linear-gradient(45deg, #00bfff, #0080ff);
+            border: 2px solid #00bfff;
+            border-radius: 15px;
+            padding: 20px 40px;
+            font-size: 2rem;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0, 191, 255, 0.5);
+            transition: all 0.3s ease;
+            opacity: 1;
+        }
+        
+        .start-button:hover {
+            background: linear-gradient(45deg, #0080ff, #00bfff);
+            box-shadow: 0 0 30px rgba(0, 191, 255, 0.8);
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+        
+        .start-button:active {
+            transform: translate(-50%, -50%) scale(0.95);
         }
         .countdown {
             font-size: 8rem;
@@ -129,6 +233,13 @@
     </style>
 </head>
 <body>
+    <!-- Orientation warning overlay -->
+    <div id="orientationWarning">
+        <div class="rotate-icon">📱</div>
+        <div class="warning-text">Vui lòng xoay ngang điện thoại</div>
+        <div class="sub-text">để có trải nghiệm tốt nhất</div>
+    </div>
+
     <!-- Canvas for the 2D Matrix effect -->
     <canvas id="matrixCanvas"></canvas>
     
@@ -138,8 +249,8 @@
     <!-- Container for 3D Three.js scene -->
     <div id="fireworks3dContainer"></div>
 
-    <!-- Introductory text overlay -->
-    <div id="introText" class="intro-text"></div>
+    <!-- Start button -->
+    <button id="startButton" class="start-button">🎉 Bắt đầu ngay! 🎉</button>
 
     <!-- Countdown effect -->
     <div id="countdown" class="countdown">3</div>
@@ -160,7 +271,7 @@
     <script>
         const matrixCanvas = document.getElementById('matrixCanvas');
         const matrixCtx = matrixCanvas.getContext('2d');
-        const introTextElement = document.getElementById('introText');
+        const startButtonElement = document.getElementById('startButton');
         const countdownElement = document.getElementById('countdown');
         const dynamicTextElement = document.getElementById('dynamicText');
         const cardMessageElement = document.getElementById('cardMessage');
@@ -179,6 +290,7 @@
         const characters = oceanCharacters.split('');
         const fontSize = 16;
         let columns = Math.floor(width / fontSize);
+        let rows = Math.floor(height / fontSize);
         const drops = [];
         for (let i = 0; i < columns; i++) {
             drops[i] = 1;
@@ -186,75 +298,235 @@
         let matrixInterval;
         let isMatrixRunning = false;
         let heartInterval;
+        
+        // Heart formation variables
+        let isFormingHeart = false;
+        let heartFormationProgress = 0;
+        let heartPositions = [];
+        let leftHeartPositions = [];
+        let rightHeartPositions = [];
+        let matrixGrid = [];
 
         // Three.js variables
-        let scene, camera, renderer, particles, particleGeometry;
+        let scene, camera, renderer, particles, particleGeometry, sparkleParticles;
         const particleCount = 30000; // Increased particle count for better density
         let targetPositions = [];
         let isHeartForming = false;
         let animationFrameId;
-        let heartBeatTime = 0; // Thêm biến để tạo hiệu ứng đập
+        let heartAnimationPhase = 'explosion'; // 'explosion', 'blooming', 'sparkling', 'breathing'
+        let heartAnimationTime = 0;
+        let heartBloomScale = 0.1; // Start very small
+        let sparklePositions = [];
 
-        // Matrix animation loop
+        // Generate heart shape positions split into left and right
+        function generateHeartPositions() {
+            heartPositions = [];
+            leftHeartPositions = [];
+            rightHeartPositions = [];
+            
+            const centerX = Math.floor(columns / 2);
+            const centerY = Math.floor(rows / 2);
+            const scale = Math.min(columns, rows) * 0.15; // Scale based on screen size
+            
+            // Heart equation: (x^2 + y^2 - 1)^3 - x^2*y^3 = 0
+            // Simplified for pixel grid
+            for (let t = 0; t < Math.PI * 2; t += 0.08) {
+                const x = 16 * Math.pow(Math.sin(t), 3);
+                const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+                
+                const pixelX = Math.floor(centerX + (x * scale) / 16);
+                const pixelY = Math.floor(centerY - (y * scale) / 16); // Invert Y for screen coordinates
+                
+                if (pixelX >= 0 && pixelX < columns && pixelY >= 0 && pixelY < rows) {
+                    const heartPos = { 
+                        x: pixelX, 
+                        y: pixelY,
+                        finalX: pixelX,
+                        finalY: pixelY
+                    };
+                    
+                    heartPositions.push(heartPos);
+                    
+                    // Split into left and right halves
+                    if (pixelX <= centerX) {
+                        // Left side starts from left edge
+                        leftHeartPositions.push({
+                            ...heartPos,
+                            x: Math.floor(Math.random() * centerX * 0.3), // Start from left side
+                        });
+                    } else {
+                        // Right side starts from right edge  
+                        rightHeartPositions.push({
+                            ...heartPos,
+                            x: Math.floor(columns - Math.random() * centerX * 0.3), // Start from right side
+                        });
+                    }
+                }
+            }
+            
+            // Fill heart interior and split
+            const filledPositions = [...heartPositions];
+            for (let y = Math.floor(centerY - scale/8); y < Math.floor(centerY + scale/8); y++) {
+                for (let x = Math.floor(centerX - scale/8); x < Math.floor(centerX + scale/8); x++) {
+                    const dx = (x - centerX) * 16 / scale;
+                    const dy = -(y - centerY) * 16 / scale;
+                    
+                    // Heart equation check
+                    const heartValue = Math.pow(dx * dx + dy * dy - 256, 3) - dx * dx * dy * dy * dy;
+                    if (heartValue <= 0 && Math.random() < 0.15) { // Reduced fill density
+                        const heartPos = { 
+                            x: x, 
+                            y: y,
+                            finalX: x,
+                            finalY: y
+                        };
+                        
+                        filledPositions.push(heartPos);
+                        
+                        if (x <= centerX) {
+                            leftHeartPositions.push({
+                                ...heartPos,
+                                x: Math.floor(Math.random() * centerX * 0.3),
+                            });
+                        } else {
+                            rightHeartPositions.push({
+                                ...heartPos,
+                                x: Math.floor(columns - Math.random() * centerX * 0.3),
+                            });
+                        }
+                    }
+                }
+            }
+            heartPositions = filledPositions;
+        }
+
+        // Matrix animation loop with heart formation
         function drawMatrix() {
             matrixCtx.fillStyle = 'rgba(0, 0, 0, 0.05)';
             matrixCtx.fillRect(0, 0, width, height);
 
-            for (let i = 0; i < drops.length; i++) {
-                matrixCtx.fillStyle = '#00bfff';
-                matrixCtx.font = fontSize + 'px sans-serif';
-                matrixCtx.shadowColor = '#00bfff';
-                matrixCtx.shadowBlur = 8;
-                matrixCtx.shadowOffsetX = 0;
-                matrixCtx.shadowOffsetY = 0;
+            if (!isFormingHeart) {
+                // Normal matrix rain
+                for (let i = 0; i < drops.length; i++) {
+                    matrixCtx.fillStyle = '#00bfff';
+                    matrixCtx.font = fontSize + 'px sans-serif';
+                    matrixCtx.shadowColor = '#00bfff';
+                    matrixCtx.shadowBlur = 8;
+                    matrixCtx.shadowOffsetX = 0;
+                    matrixCtx.shadowOffsetY = 0;
 
-                const text = characters[Math.floor(Math.random() * characters.length)];
-                matrixCtx.fillText(text, i * fontSize, drops[i] * fontSize);
+                    const text = characters[Math.floor(Math.random() * characters.length)];
+                    matrixCtx.fillText(text, i * fontSize, drops[i] * fontSize);
 
-                if (drops[i] * fontSize > height && Math.random() > 0.975) {
-                    drops[i] = 0;
+                    if (drops[i] * fontSize > height && Math.random() > 0.975) {
+                        drops[i] = 0;
+                    }
+                    drops[i]++;
                 }
-                drops[i]++;
+            } else {
+                // Heart formation phase - characters move from sides to center
+                heartFormationProgress += 0.015; // Slower formation for smoother animation
+                
+                // Continue some matrix rain in background
+                for (let i = 0; i < drops.length; i++) {
+                    if (Math.random() < 0.2) { // Further reduced density
+                        matrixCtx.fillStyle = 'rgba(0, 191, 255, 0.2)';
+                        matrixCtx.font = fontSize + 'px sans-serif';
+                        matrixCtx.shadowColor = '#00bfff';
+                        matrixCtx.shadowBlur = 2;
+                        
+                        const text = characters[Math.floor(Math.random() * characters.length)];
+                        matrixCtx.fillText(text, i * fontSize, drops[i] * fontSize);
+                        
+                        if (drops[i] * fontSize > height && Math.random() > 0.975) {
+                            drops[i] = 0;
+                        }
+                        drops[i]++;
+                    }
+                }
+                
+                // Draw moving heart characters
+                const progress = Math.min(heartFormationProgress, 1);
+                
+                // Draw left side moving to center
+                for (let i = 0; i < leftHeartPositions.length; i++) {
+                    const pos = leftHeartPositions[i];
+                    const currentX = pos.x + (pos.finalX - pos.x) * progress;
+                    const currentY = pos.y + (pos.finalY - pos.y) * progress * 0.3; // Slight Y movement
+                    
+                    matrixCtx.fillStyle = '#00bfff';
+                    matrixCtx.font = fontSize + 'px sans-serif';
+                    matrixCtx.shadowColor = '#00bfff';
+                    matrixCtx.shadowBlur = 8;
+                    
+                    const char = '❤';
+                    matrixCtx.fillText(char, currentX * fontSize, currentY * fontSize);
+                }
+                
+                // Draw right side moving to center
+                for (let i = 0; i < rightHeartPositions.length; i++) {
+                    const pos = rightHeartPositions[i];
+                    const currentX = pos.x + (pos.finalX - pos.x) * progress;
+                    const currentY = pos.y + (pos.finalY - pos.y) * progress * 0.3; // Slight Y movement
+                    
+                    matrixCtx.fillStyle = '#00bfff';
+                    matrixCtx.font = fontSize + 'px sans-serif';
+                    matrixCtx.shadowColor = '#00bfff';
+                    matrixCtx.shadowBlur = 8;
+                    
+                    const char = '❤';
+                    matrixCtx.fillText(char, currentX * fontSize, currentY * fontSize);
+                }
             }
         }
 
-        // Handle window resizing
-        window.addEventListener('resize', () => {
-            matrixCanvas.width = window.innerWidth;
-            matrixCanvas.height = window.innerHeight;
+        // Handle window resizing and orientation changes
+        function handleResize() {
+            const newWidth = window.innerWidth;
+            const newHeight = window.innerHeight;
+            
+            matrixCanvas.width = newWidth;
+            matrixCanvas.height = newHeight;
+            
             if (camera) {
-                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.aspect = newWidth / newHeight;
                 camera.updateProjectionMatrix();
             }
             if (renderer) {
-                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setSize(newWidth, newHeight);
             }
-        });
-
-        // Array of introductory messages
-        const introMessages = [
-            "Có mở đúng ngày mà em dặn hong đóa",
-            "Nếu đúng thì sẽ waoo",
-            "còn không thì...",
-            "cũm waoo hoi"
-        ];
-        let introIndex = 0;
-
-        // Display intro messages
-        function showIntroMessages() {
-            if (introIndex < introMessages.length) {
-                introTextElement.textContent = introMessages[introIndex];
-                introTextElement.style.opacity = 1;
-                introIndex++;
-                setTimeout(() => {
-                    introTextElement.style.opacity = 0;
-                    setTimeout(showIntroMessages, 1000);
-                }, 2000);
-            } else {
-                // After intro messages, start the countdown
-                setTimeout(startCountdown, 500);
+            
+            // Recalculate matrix columns and rows for new dimensions
+            columns = Math.floor(newWidth / fontSize);
+            rows = Math.floor(newHeight / fontSize);
+            drops.length = columns;
+            for (let i = 0; i < columns; i++) {
+                if (drops[i] === undefined) {
+                    drops[i] = 1;
+                }
+            }
+            
+            // Regenerate heart positions for new screen size
+            if (isFormingHeart) {
+                generateHeartPositions();
             }
         }
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', () => {
+            // Delay to allow orientation change to complete
+            setTimeout(handleResize, 100);
+        });
+
+        // Start button click handler
+        startButtonElement.addEventListener('click', function() {
+            // Hide start button with animation
+            startButtonElement.style.opacity = 0;
+            setTimeout(() => {
+                startButtonElement.style.display = 'none';
+                startCountdown();
+            }, 500);
+        });
 
         // Countdown function
         let countdown = 3;
@@ -296,11 +568,8 @@
                     isMatrixRunning = true;
                 }
 
-                if (defaultDynamicMessages[dynamicIndex].includes("ANH THY")) { 
-                    if (!heartInterval) {
-                        heartInterval = setInterval(createHeartParticle, 100);
-                    }
-                }
+                // Don't start heart formation during text sequence
+                // Wait until after "28.08.2004" is shown
                 
                 let displayDuration = 2500;
                 if (defaultDynamicMessages[dynamicIndex].length > 20) {
@@ -313,25 +582,30 @@
                 }, displayDuration);
                 dynamicIndex++;
             } else {
-                // All messages have been shown, start 3D fireworks
-                clearInterval(matrixInterval); // Stop the matrix effect
-                if (heartInterval) clearInterval(heartInterval);
-                matrixCanvas.style.display = 'none';
-                start3DEffect();
+                // All messages have been shown, now start heart formation
+                if (!isFormingHeart) {
+                    isFormingHeart = true;
+                    generateHeartPositions();
+                    heartFormationProgress = 0; // Reset progress
+                }
+                
+                // Show card message after heart formation completes
+                setTimeout(() => {
+                    // Check if heart formation is complete before showing message
+                    const checkHeartComplete = setInterval(() => {
+                        if (heartFormationProgress >= 1) {
+                            clearInterval(checkHeartComplete);
+                            setTimeout(() => {
+                                showCardMessage();
+                            }, 1000); // Wait 1 second after heart is fully formed
+                        }
+                    }, 100);
+                }, 500);
             }
         }
         
-        // Function to create a single heart particle (2D)
-        function createHeartParticle() {
-            const heart = document.createElement('div');
-            heart.classList.add('heart-particle');
-            heart.style.left = `${Math.random() * 100}vw`;
-            heart.style.animationDuration = `${Math.random() * 2 + 3}s`;
-            heartContainer.appendChild(heart);
-            setTimeout(() => {
-                heart.remove();
-            }, 5000);
-        }
+        // Remove the old heart particle function - no longer needed
+        // Matrix heart formation replaces this functionality
 
         // Three.js initialization and animation
         function start3DEffect() {
@@ -392,6 +666,9 @@
             particles = new THREE.Points(particleGeometry, particleMaterial);
             scene.add(particles);
 
+            // Create sparkle particles
+            createSparkleSystem();
+
             // Pre-calculate target positions for the heart shape
             targetPositions = createHeartShapePoints(particleCount, 50); // smaller scale
 
@@ -401,16 +678,17 @@
             // Start the explosion animation
             animateExplosion();
 
-            // After 3 seconds, start forming the heart immediately
+            // After 3 seconds, start the heart blooming sequence
             setTimeout(() => {
                 isHeartForming = true;
+                heartAnimationPhase = 'blooming';
                 dynamicTextElement.style.opacity = 0;
             }, 3000);
 
-            // After the heart has formed, show the card message
+            // After the heart animation sequence, show the card message
             setTimeout(() => {
                 showCardMessage();
-            }, 6000); // Wait 6 seconds after starting 3D effect to show message
+            }, 8500); // Wait for bloom + sparkle + breathing phases to settle
 
         }
 
@@ -452,12 +730,56 @@
             return points;
         }
 
+        // Create sparkle particle system
+        function createSparkleSystem() {
+            const sparkleCount = 200;
+            const sparkleGeometry = new THREE.BufferGeometry();
+            const sparklePositions = [];
+            const sparkleColors = [];
+            const sparkleOpacities = [];
+            
+            for (let i = 0; i < sparkleCount; i++) {
+                // Random positions around heart area
+                const radius = 60 + Math.random() * 40;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.random() * Math.PI;
+                
+                sparklePositions.push(
+                    radius * Math.sin(phi) * Math.cos(theta),
+                    radius * Math.cos(phi),
+                    radius * Math.sin(phi) * Math.sin(theta)
+                );
+                
+                // Sparkle colors (white to light blue)
+                const color = new THREE.Color();
+                color.setHSL(0.55 + Math.random() * 0.1, 0.3 + Math.random() * 0.7, 0.8 + Math.random() * 0.2);
+                sparkleColors.push(color.r, color.g, color.b);
+                sparkleOpacities.push(0); // Start invisible
+            }
+            
+            sparkleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(sparklePositions, 3));
+            sparkleGeometry.setAttribute('color', new THREE.Float32BufferAttribute(sparkleColors, 3));
+            
+            const sparkleMaterial = new THREE.PointsMaterial({
+                size: 2,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                opacity: 0
+            });
+            
+            sparkleParticles = new THREE.Points(sparkleGeometry, sparkleMaterial);
+            scene.add(sparkleParticles);
+        }
+
         // Animation loop for the explosion phase
         function animateExplosion() {
             animationFrameId = requestAnimationFrame(animateExplosion);
 
             const positions = particleGeometry.attributes.position.array;
             const velocities = particleGeometry.userData.velocities;
+            
+            heartAnimationTime += 0.016; // ~60fps
             
             for (let i = 0; i < particleCount; i++) {
                 const i3 = i * 3;
@@ -484,20 +806,64 @@
             }
             particleGeometry.attributes.position.needsUpdate = true;
             
-            // Thêm hiệu ứng đập vào đây
-            if (isHeartForming) {
-                heartBeatTime += 0.05;
-                // Sử dụng sin() để tạo hiệu ứng dao động nhịp nhàng
-                const scale = 1 + 0.05 * Math.sin(heartBeatTime); 
-                particles.scale.set(scale, scale, scale);
-            }
+            // Handle different animation phases
+            handleHeartAnimation();
 
             renderer.render(scene, camera);
         }
 
-        // New function to show the card message
+        // Handle heart animation phases
+        function handleHeartAnimation() {
+            if (!isHeartForming) return;
+            
+            switch(heartAnimationPhase) {
+                case 'blooming':
+                    // Phase 1: Heart blooms from tiny to full size (2 seconds)
+                    if (heartAnimationTime < 2) {
+                        // Smooth easing function for blooming
+                        const progress = heartAnimationTime / 2;
+                        const easeOut = 1 - Math.pow(1 - progress, 3); // Cubic ease-out
+                        heartBloomScale = 0.1 + (0.9 * easeOut);
+                        particles.scale.set(heartBloomScale, heartBloomScale, heartBloomScale);
+                    } else {
+                        heartAnimationPhase = 'sparkling';
+                        heartAnimationTime = 0; // Reset timer for next phase
+                    }
+                    break;
+                    
+                case 'sparkling':
+                    // Phase 2: Sparkles appear around heart (1.5 seconds)
+                    if (heartAnimationTime < 1.5) {
+                        const sparkleProgress = heartAnimationTime / 1.5;
+                        sparkleParticles.material.opacity = Math.sin(sparkleProgress * Math.PI) * 0.8;
+                        
+                        // Make sparkles twinkle
+                        const sparklePositions = sparkleParticles.geometry.attributes.position.array;
+                        for (let i = 0; i < sparklePositions.length; i += 3) {
+                            const twinkle = Math.sin(heartAnimationTime * 8 + i) * 0.5 + 0.5;
+                            sparklePositions[i + 1] += Math.sin(heartAnimationTime * 2 + i) * 0.2;
+                        }
+                        sparkleParticles.geometry.attributes.position.needsUpdate = true;
+                    } else {
+                        heartAnimationPhase = 'breathing';
+                        heartAnimationTime = 0;
+                    }
+                    break;
+                    
+                case 'breathing':
+                    // Phase 3: Gentle breathing effect (ongoing)
+                    const breathScale = 1 + 0.02 * Math.sin(heartAnimationTime * 1.5); // Slower, gentler
+                    particles.scale.set(breathScale, breathScale, breathScale);
+                    
+                    // Gentle sparkle fade and twinkle
+                    const sparkleOpacity = 0.3 + 0.2 * Math.sin(heartAnimationTime * 0.8);
+                    sparkleParticles.material.opacity = sparkleOpacity;
+                    break;
+            }
+        }
+
+        // Show card message function (simplified)
         function showCardMessage() {
-            // Updated text as requested
             const message = "Chị mở tấm thiệp ra đi nha";
             cardMessageElement.textContent = message;
             cardMessageElement.style.opacity = 1;
@@ -511,9 +877,9 @@
             }, 1000);
         }
 
-        // Start the sequence when the page loads
+        // Show start button when the page loads
         window.onload = () => {
-            showIntroMessages();
+            startButtonElement.style.opacity = 1;
         };
     </script>
 </body>
